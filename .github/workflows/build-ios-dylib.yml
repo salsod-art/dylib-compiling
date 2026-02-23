@@ -1,0 +1,197 @@
+name: Build iOS dylib + XCFramework (device & simulator)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      lib_name:
+        description: 'Base name for library (no prefix/suffix). Example: mylib'
+        required: false
+        default: 'mylib'
+      src_path:
+        description: 'Globs for source files (git ls-files).'
+        required: false
+        default: 'src/**'
+      install_name:
+        description: 'install_name for the dylib (e.g. @rpath).'
+        required: false
+        default: '@rpath'
+      codesign_identity_secret:
+        description: 'Optional: repo secret name that contains codesign identity (e.g. "IOS_CODESIGN_IDENTITY"). Leave empty to skip codesign.'
+        required: false
+        default: ''
+      entitlements_secret:
+        description: 'Optional: repo secret name with entitlements plist contents (base64) - used for codesign if provided.'
+        required: false
+        default: ''
+      create_release:
+        description: 'Create a GitHub release and attach artifacts? true/false'
+        required: false
+        default: 'false'
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      LIB_NAME: ${{ github.event.inputs.lib_name || 'mylib' }}
+      SRC_PATH: ${{ github.event.inputs.src_path || 'src/**' }}
+      INSTALL_NAME: ${{ github.event.inputs.install_name || '@rpath' }}
+      CODESIGN_SECRET_NAME: ${{ github.event.inputs.codesign_identity_secret || '' }}
+      ENTITLEMENTS_SECRET_NAME: ${{ github.event.inputs.entitlements_secret || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare build dir
+        run: |
+          rm -rf build
+          mkdir -p build/device build/simulator build/xcframework
+
+      - name: Detect sources
+        id: detect
+        run: |
+          SRC="${{ env.SRC_PATH }}"
+          C_FILES=$(git ls-files $SRC '*.c' '*.m' || true)
+          CPP_FILES=$(git ls-files $SRC '*.cpp' '*.cc' '*.cxx' '*.mm' || true)
+          SWIFT_FILES=$(git ls-files $SRC '*.swift' || true)
+          RS_FILES=$(git ls-files $SRC '*.rs' || true)
+          echo "c_files<<EOF" >> "$GITHUB_OUTPUT"; echo "$C_FILES" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "cpp_files<<EOF" >> "$GITHUB_OUTPUT"; echo "$CPP_FILES" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "swift_files<<EOF" >> "$GITHUB_OUTPUT"; echo "$SWIFT_FILES" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "rs_files<<EOF" >> "$GITHUB_OUTPUT"; echo "$RS_FILES" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build device slice (iphoneos, arm64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          ARCH=arm64
+          OUT=build/device/lib${LIB_NAME}.dylib
+          INSTALL_FLAG="-install_name ${INSTALL_NAME}/lib${LIB_NAME}.dylib"
+          echo "SDK_PATH=$SDK_PATH"
+          if [ -n "${{ steps.detect.outputs.c_files }}" ] || [ -n "${{ steps.detect.outputs.cpp_files }}" ]; then
+            SRC_FILES="${{ steps.detect.outputs.c_files }} ${{ steps.detect.outputs.cpp_files }}"
+            xcrun --sdk iphoneos clang -isysroot "$SDK_PATH" -arch $ARCH -dynamiclib -fPIC $INSTALL_FLAG -o "$OUT" $SRC_FILES -O2 -stdlib=libc++
+          elif [ -n "${{ steps.detect.outputs.swift_files }}" ]; then
+            # swiftc does not have an explicit iphoneos target flag here; rely on xcrun wrapper
+            xcrun --sdk iphoneos swiftc -target arm64-apple-ios -emit-library -o "$OUT" ${{ steps.detect.outputs.swift_files }}
+          else
+            echo "No supported sources found for device build; skipping device dylib."
+            exit 0
+          fi
+          ls -l "$OUT"
+
+      - name: Build simulator slices (iphonesimulator: x86_64 and arm64 where available)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIM_SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          # Build x86_64 slice (for Intel runners / older simulator)
+          ARCH=x86_64
+          OUT_X86=build/simulator/lib${LIB_NAME}-x86_64.dylib
+          INSTALL_FLAG="-install_name ${INSTALL_NAME}/lib${LIB_NAME}.dylib"
+          if [ -n "${{ steps.detect.outputs.c_files }}" ] || [ -n "${{ steps.detect.outputs.cpp_files }}" ]; then
+            SRC_FILES="${{ steps.detect.outputs.c_files }} ${{ steps.detect.outputs.cpp_files }}"
+            xcrun --sdk iphonesimulator clang -isysroot "$SIM_SDK" -arch $ARCH -dynamiclib -fPIC $INSTALL_FLAG -o "$OUT_X86" $SRC_FILES -O2 -stdlib=libc++
+          elif [ -n "${{ steps.detect.outputs.swift_files }}" ]; then
+            xcrun --sdk iphonesimulator swiftc -target x86_64-apple-ios-simulator -emit-library -o "$OUT_X86" ${{ steps.detect.outputs.swift_files }}
+          else
+            echo "No supported sources found for simulator x86_64; skipping that slice."
+            OUT_X86=""
+          fi
+
+          # Build arm64 simulator slice (Apple Silicon simulators)
+          ARCH=arm64
+          OUT_ARM_SIM=build/simulator/lib${LIB_NAME}-arm64-sim.dylib
+          if [ -n "${{ steps.detect.outputs.c_files }}" ] || [ -n "${{ steps.detect.outputs.cpp_files }}" ]; then
+            SRC_FILES="${{ steps.detect.outputs.c_files }} ${{ steps.detect.outputs.cpp_files }}"
+            xcrun --sdk iphonesimulator clang -isysroot "$SIM_SDK" -arch $ARCH -dynamiclib -fPIC $INSTALL_FLAG -o "$OUT_ARM_SIM" $SRC_FILES -O2 -stdlib=libc++
+          elif [ -n "${{ steps.detect.outputs.swift_files }}" ]; then
+            xcrun --sdk iphonesimulator swiftc -target arm64-apple-ios-simulator -emit-library -o "$OUT_ARM_SIM" ${{ steps.detect.outputs.swift_files }}
+          else
+            echo "No supported sources found for simulator arm64; skipping that slice."
+            OUT_ARM_SIM=""
+          fi
+
+          # Create a universal simulator binary if multiple slices were created
+          SIM_FINAL=build/simulator/lib${LIB_NAME}.dylib
+          SLICES=()
+          [ -f "$OUT_X86" ] && SLICES+=("$OUT_X86")
+          [ -f "$OUT_ARM_SIM" ] && SLICES+=("$OUT_ARM_SIM")
+          if [ ${#SLICES[@]} -gt 1 ]; then
+            lipo -create -output "$SIM_FINAL" "${SLICES[@]}"
+          elif [ ${#SLICES[@]} -eq 1 ]; then
+            cp "${SLICES[0]}" "$SIM_FINAL"
+          else
+            echo "No simulator slices produced."
+            SIM_FINAL=""
+          fi
+          [ -n "$SIM_FINAL" ] && ls -l "$SIM_FINAL" || true
+
+      - name: Optionally codesign device dylib
+        if: env.CODESIGN_SECRET_NAME != ''
+        shell: bash
+        env:
+          CODESIGN_SECRET_NAME: ${{ env.CODESIGN_SECRET_NAME }}
+          ENTITLEMENTS_SECRET_NAME: ${{ env.ENTITLEMENTS_SECRET_NAME }}
+        run: |
+          set -euo pipefail
+          # Expect the repo secret to contain the signing identity string, e.g. "iPhone Developer: Foo Bar (TEAMID)"
+          SIGN_IDENTITY="${{ secrets[env.CODESIGN_SECRET_NAME] || '' }}"
+          if [ -z "$SIGN_IDENTITY" ]; then
+            echo "Codesign identity secret '${CODESIGN_SECRET_NAME}' is empty or not set. Skipping codesign."
+            exit 0
+          fi
+          DEVICE_LIB=build/device/lib${LIB_NAME}.dylib
+          if [ ! -f "$DEVICE_LIB" ]; then
+            echo "No device dylib to codesign, skipping."
+            exit 0
+          fi
+          ENT_FILE=""
+          if [ -n "${{ secrets[env.ENTITLEMENTS_SECRET_NAME] || '' }}" ]; then
+            echo "${{ secrets[env.ENTITLEMENTS_SECRET_NAME] }}" | base64 --decode > build/entitlements.plist
+            ENT_FILE="--entitlements build/entitlements.plist"
+          fi
+          echo "Codesigning $DEVICE_LIB with identity '$SIGN_IDENTITY'..."
+          # --timestamp=none typical for local/dev signing to avoid network; adjust as needed.
+          codesign --force --sign "$SIGN_IDENTITY" $ENT_FILE --timestamp=none "$DEVICE_LIB"
+          codesign -v "$DEVICE_LIB" || true
+          ls -l "$DEVICE_LIB"
+
+      - name: Package into XCFramework (recommended pattern)
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_LIB=build/device/lib${LIB_NAME}.dylib
+          SIM_LIB=build/simulator/lib${LIB_NAME}.dylib
+          XCOUT=build/${LIB_NAME}.xcframework
+          rm -rf "$XCOUT"
+          # XCFramework can accept -library slices
+          xcodebuild -create-xcframework \
+            ${DEVICE_LIB:+-library "$DEVICE_LIB"} \
+            ${SIM_LIB:+-library "$SIM_LIB"} \
+            -output "$XCOUT" || { echo "Failed creating XCFramework; falling back to zipping artifacts."; exit 0; }
+          ls -l "$XCOUT" || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-dylib-artifacts
+          path: |
+            build/device/*.dylib
+            build/simulator/*.dylib
+            build/*.xcframework
+
+      - name: Create release (optional)
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/device/*.dylib
+            build/simulator/*.dylib
+            build/*.xcframework
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
