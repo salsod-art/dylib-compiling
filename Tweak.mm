@@ -9,11 +9,14 @@
 #import <objc/runtime.h>
 #import <substrate.h>
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// RPC Function Declarations — Unity Networking
-// ═══════════════════════════════════════════════════════════════════════════════
+// ✅ DEFINE VECTOR3 FIRST
+typedef struct {
+    float x;
+    float y;
+    float z;
+} Vector3;
 
-// Player manipulation
+// RPC declarations AFTER
 static void (*RPC_Teleport)(void *player, Vector3 position);
 static void (*RPC_AddForce)(void *player, Vector3 force, int forceMode);
 static void (*RPC_PlayerHit)(void *player, float damage, void *attacker);
@@ -1499,3 +1502,4 @@ static void ELInit(void) {
         ELInject();
     });
 }
+
