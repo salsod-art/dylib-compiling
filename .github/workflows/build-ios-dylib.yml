@@ -38,8 +38,10 @@ jobs:
             -framework UIKit \
             -framework Foundation \
             -framework QuartzCore \
+            -framework CoreGraphics \
             -Iinclude \
             -fobjc-arc \
+            -std=c++17 \
             -o EverLight.dylib
 
       - name: Upload dylib
