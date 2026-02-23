@@ -1,4 +1,4 @@
-name: Build iOS dylib from .mm (single-file)
+name: Build iOS dylib (single .mm file)
 
 on:
   push:
@@ -6,47 +6,45 @@ on:
   workflow_dispatch:
     inputs:
       lib_name:
-        description: 'Base name for library / source file (no prefix). e.g. Tweak -> Tweak.mm -> libTweak.dylib'
+        description: 'Base name for library (no prefix). Example: Tweak -> libTweak.dylib'
         required: false
         default: 'Tweak'
       codesign_identity_secret:
-        description: 'Optional: repo secret name that contains codesign identity string (e.g. IOS_CODESIGN_IDENTITY). Leave empty to skip codesign.'
+        description: '(optional) repo secret name containing codesign identity string (e.g. IOS_CODESIGN_IDENTITY). Leave empty to skip codesign.'
         required: false
         default: ''
 
 jobs:
   build:
     runs-on: macos-latest
-    permissions:
-      contents: write
     env:
       LIB_NAME: ${{ github.event.inputs.lib_name || 'Tweak' }}
       CODESIGN_SECRET_NAME: ${{ github.event.inputs.codesign_identity_secret || '' }}
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Prepare build dirs
         run: |
           rm -rf build || true
-          mkdir -p build/device build/simulator build/xcframework
+          mkdir -p build/device build/simulator
 
-      - name: Verify source exists
+      - name: Verify Tweak.mm exists
         run: |
-          SRC_FILE="${{ env.LIB_NAME }}.mm"
-          if [ ! -f "$SRC_FILE" ]; then
-            echo "Expected single source file '$SRC_FILE' in repo root. Create it and push."
+          SRC="${{ env.LIB_NAME }}.mm"
+          if [ ! -f "$SRC" ]; then
+            echo "Expected source file '$SRC' in repo root. Create it and push, or change lib_name."
             ls -la
             exit 1
           fi
-          echo "Found $SRC_FILE"
+          echo "Found $SRC"
 
       - name: Create minimal substrate.h stub if missing (compile-time only)
         run: |
           if [ ! -f "substrate.h" ]; then
             cat > substrate.h <<'EOF'
-/* substrate.h — minimal compile-time stub (runtime must provide actual MobileSubstrate/Substitute) */
+/* substrate.h — minimal compile-time stub (runtime must provide real Substrate/Substitute) */
 #ifndef SUBSTRATE_H
 #define SUBSTRATE_H
 
@@ -57,7 +55,7 @@ jobs:
 extern "C" {
 #endif
 
-/* Common runtime hooks (stubs for compile-time) */
+/* Common MobileSubstrate function prototypes (runtime provides implementations) */
 void MSHookFunction(void *symbol, void *replacement, void **result);
 void MSHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result);
 void MSHookIvar(Class _class, const char *name, ptrdiff_t offset);
@@ -73,132 +71,123 @@ void MSHookMessage(Class _class, SEL sel, void *imp);
 
 #endif /* SUBSTRATE_H */
 EOF
-            echo "substrate.h stub created."
+            echo "Created substrate.h stub (compile-time only)."
           else
-            echo "substrate.h exists; leaving it alone."
+            echo "substrate.h already present in repo; not overwriting."
           fi
           ls -la substrate.h || true
 
       - name: Build device dylib (iphoneos arm64)
+        env:
+          LIB_NAME: ${{ env.LIB_NAME }}
         run: |
-          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
-          SRC="${{ env.LIB_NAME }}.mm"
-          OUT="build/device/lib${{ env.LIB_NAME }}.dylib"
-          echo "SDK_PATH=$SDK_PATH"
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          SRC="${LIB_NAME}.mm"
+          OUT="build/device/lib${LIB_NAME}.dylib"
+
+          echo "SDK: $SDK"
           xcrun --sdk iphoneos clang++ \
-            -isysroot "$SDK_PATH" \
+            -isysroot "$SDK" \
             -I . \
             -arch arm64 \
             -dynamiclib \
             -fobjc-arc \
-            -ObjC \
             -framework Foundation \
             -framework UIKit \
-            -install_name @rpath/lib${{ env.LIB_NAME }}.dylib \
+            -install_name @rpath/lib${LIB_NAME}.dylib \
             "$SRC" \
             -o "$OUT" \
-            -O2 -fvisibility=default || { echo "Device build failed"; exit 1; }
+            -O2 -stdlib=libc++
+
+          echo "Device build output:"
           file "$OUT" || true
           ls -l build/device || true
 
       - name: Build simulator slices (x86_64 and arm64)
+        env:
+          LIB_NAME: ${{ env.LIB_NAME }}
         run: |
-          SIM_SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
-          SRC="${{ env.LIB_NAME }}.mm"
-          OUT_X86="build/simulator/lib${{ env.LIB_NAME }}-x86_64.dylib"
-          OUT_ARM="build/simulator/lib${{ env.LIB_NAME }}-arm64.dylib"
-          echo "SIM_SDK=$SIM_SDK"
+          SIMSDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          SRC="${LIB_NAME}.mm"
+          OUT_X86="build/simulator/lib${LIB_NAME}-x86_64.dylib"
+          OUT_ARM_SIM="build/simulator/lib${LIB_NAME}-arm64.dylib"
+          OUT_FINAL="build/simulator/lib${LIB_NAME}.dylib"
+
+          echo "Simulator SDK: $SIMSDK"
 
           # x86_64 slice
           xcrun --sdk iphonesimulator clang++ \
-            -isysroot "$SIM_SDK" \
+            -isysroot "$SIMSDK" \
             -I . \
             -arch x86_64 \
             -dynamiclib \
             -fobjc-arc \
-            -ObjC \
             -framework Foundation \
             -framework UIKit \
-            -install_name @rpath/lib${{ env.LIB_NAME }}.dylib \
+            -install_name @rpath/lib${LIB_NAME}.dylib \
             "$SRC" \
             -o "$OUT_X86" \
-            -O2 -fvisibility=default || { echo "Simulator x86_64 build failed"; exit 1; }
+            -O2 -stdlib=libc++
 
-          # arm64 simulator slice (may fail on older runners; it's okay)
+          # arm64 simulator slice (may fail on older runners; that's okay)
+          set +e
           xcrun --sdk iphonesimulator clang++ \
-            -isysroot "$SIM_SDK" \
+            -isysroot "$SIMSDK" \
             -I . \
             -arch arm64 \
             -dynamiclib \
             -fobjc-arc \
-            -ObjC \
             -framework Foundation \
             -framework UIKit \
-            -install_name @rpath/lib${{ env.LIB_NAME }}.dylib \
+            -install_name @rpath/lib${LIB_NAME}.dylib \
             "$SRC" \
-            -o "$OUT_ARM" \
-            -O2 -fvisibility=default || echo "Simulator arm64 slice build skipped/failed (non-Apple Silicon runner?)"
+            -o "$OUT_ARM_SIM" \
+            -O2 -stdlib=libc++
+          set -e
 
-          # Merge available simulator slices
-          SIM_FINAL="build/simulator/lib${{ env.LIB_NAME }}.dylib"
-          SLICES=()
-          [ -f "$OUT_X86" ] && SLICES+=("$OUT_X86")
-          [ -f "$OUT_ARM" ] && SLICES+=("$OUT_ARM")
+          # Merge produced slices if both exist, else copy the available one
+          SLICES=""
+          [ -f "$OUT_X86" ] && SLICES="$SLICES $OUT_X86"
+          [ -f "$OUT_ARM_SIM" ] && SLICES="$SLICES $OUT_ARM_SIM"
 
-          if [ ${#SLICES[@]} -eq 0 ]; then
-            echo "No simulator slices built; skipping simulator dylib."
-          elif [ ${#SLICES[@]} -eq 1 ]; then
-            cp "${SLICES[0]}" "$SIM_FINAL"
+          if [ -n "$SLICES" ]; then
+            if [ $(echo "$SLICES" | wc -w) -gt 1 ]; then
+              lipo -create -output "$OUT_FINAL" $SLICES
+            else
+              cp $SLICES "$OUT_FINAL"
+            fi
+            echo "Simulator build output:"
+            file "$OUT_FINAL" || true
+            ls -l build/simulator || true
           else
-            lipo -create -output "$SIM_FINAL" "${SLICES[@]}"
+            echo "No simulator slices were created."
           fi
-
-          [ -f "$SIM_FINAL" ] && file "$SIM_FINAL" || true
-          ls -l build/simulator || true
 
       - name: Optionally codesign device dylib (if secret provided)
         if: env.CODESIGN_SECRET_NAME != ''
         env:
           CODESIGN_SECRET_NAME: ${{ env.CODESIGN_SECRET_NAME }}
+          LIB_NAME: ${{ env.LIB_NAME }}
         run: |
-          ID="${{ secrets[ env.CODESIGN_SECRET_NAME ] || '' }}"
-          DEVICE_LIB="build/device/lib${{ env.LIB_NAME }}.dylib"
+          ID="${{ secrets[env.CODESIGN_SECRET_NAME] || '' }}"
+          DEVICE_LIB="build/device/lib${LIB_NAME}.dylib"
           if [ -z "$ID" ]; then
-            echo "Codesign identity secret '${CODESIGN_SECRET_NAME}' is not set or empty. Skipping codesign."
+            echo "Codesign identity secret not set or empty; skipping codesign."
             exit 0
           fi
           if [ ! -f "$DEVICE_LIB" ]; then
-            echo "Device dylib not found at $DEVICE_LIB; cannot codesign."
+            echo "No device dylib to codesign; skipping."
             exit 0
           fi
           echo "Codesigning $DEVICE_LIB with identity: $ID"
-          # --timestamp=none avoids network calls on runner (typical for CI dev signing)
-          codesign --force --sign "$ID" --timestamp=none "$DEVICE_LIB" || { echo "codesign failed"; exit 1; }
+          codesign --force --sign "$ID" --timestamp=none "$DEVICE_LIB"
           codesign -v "$DEVICE_LIB" || true
           ls -l "$DEVICE_LIB"
-
-      - name: Create XCFramework (device + simulator)
-        run: |
-          DEVICE_LIB="build/device/lib${{ env.LIB_NAME }}.dylib"
-          SIM_LIB="build/simulator/lib${{ env.LIB_NAME }}.dylib"
-          OUT_XC="build/${{ env.LIB_NAME }}.xcframework"
-          rm -rf "$OUT_XC"
-          args=""
-          [ -f "$DEVICE_LIB" ] && args="$args -library $DEVICE_LIB"
-          [ -f "$SIM_LIB" ] && args="$args -library $SIM_LIB"
-          if [ -n "$args" ]; then
-            xcodebuild -create-xcframework $args -output "$OUT_XC" || echo "xcframework creation failed (continuing)."
-            ls -l "$OUT_XC" || true
-          else
-            echo "No inputs for XCFramework creation."
-          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ios-mm-artifacts
+          name: ios-dylib-artifacts
           path: |
             build/device/*.dylib
             build/simulator/*.dylib
-            build/*.xcframework
-            substrate.h
