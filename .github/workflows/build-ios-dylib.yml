@@ -1,91 +1,39 @@
-name: Build iOS dylib (single .mm file)
+name: Build iOS dylib (single Tweak.mm)
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      lib_name:
-        description: 'Base name for library (no prefix). Example: Tweak -> libTweak.dylib'
-        required: false
-        default: 'Tweak'
-      codesign_identity_secret:
-        description: '(optional) repo secret name containing codesign identity string (e.g. IOS_CODESIGN_IDENTITY). Leave empty to skip codesign.'
-        required: false
-        default: ''
 
 jobs:
   build:
     runs-on: macos-latest
-    env:
-      LIB_NAME: ${{ github.event.inputs.lib_name || 'Tweak' }}
-      CODESIGN_SECRET_NAME: ${{ github.event.inputs.codesign_identity_secret || '' }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Prepare build dirs
-        run: |
-          rm -rf build || true
-          mkdir -p build/device build/simulator
+      - name: Create build folders
+        run: mkdir -p build/device build/simulator
 
-      - name: Verify Tweak.mm exists
+      - name: Verify required files exist
         run: |
-          SRC="${{ env.LIB_NAME }}.mm"
-          if [ ! -f "$SRC" ]; then
-            echo "Expected source file '$SRC' in repo root. Create it and push, or change lib_name."
-            ls -la
+          if [ ! -f "Tweak.mm" ]; then
+            echo "❌ Missing Tweak.mm in repo root"
             exit 1
           fi
-          echo "Found $SRC"
 
-      - name: Create minimal substrate.h stub if missing (compile-time only)
-        run: |
           if [ ! -f "substrate.h" ]; then
-            cat > substrate.h <<'EOF'
-/* substrate.h — minimal compile-time stub (runtime must provide real Substrate/Substitute) */
-#ifndef SUBSTRATE_H
-#define SUBSTRATE_H
-
-#include <stddef.h>
-#include <objc/objc.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* Common MobileSubstrate function prototypes (runtime provides implementations) */
-void MSHookFunction(void *symbol, void *replacement, void **result);
-void MSHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result);
-void MSHookIvar(Class _class, const char *name, ptrdiff_t offset);
-void MSHookMessage(Class _class, SEL sel, void *imp);
-
-#ifndef MSHook
-#define MSHook(a,b,c) MSHookFunction((void*)a,(void*)b,(void**)c)
-#endif
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* SUBSTRATE_H */
-EOF
-            echo "Created substrate.h stub (compile-time only)."
-          else
-            echo "substrate.h already present in repo; not overwriting."
+            echo "❌ Missing substrate.h in repo root"
+            echo "Create a stub header or add the real one"
+            exit 1
           fi
-          ls -la substrate.h || true
 
-      - name: Build device dylib (iphoneos arm64)
-        env:
-          LIB_NAME: ${{ env.LIB_NAME }}
+      # ---------------- DEVICE BUILD ----------------
+      - name: Build device dylib (iphone arm64)
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          SRC="${LIB_NAME}.mm"
-          OUT="build/device/lib${LIB_NAME}.dylib"
 
-          echo "SDK: $SDK"
           xcrun --sdk iphoneos clang++ \
             -isysroot "$SDK" \
             -I . \
@@ -94,26 +42,18 @@ EOF
             -fobjc-arc \
             -framework Foundation \
             -framework UIKit \
-            -install_name @rpath/lib${LIB_NAME}.dylib \
-            "$SRC" \
-            -o "$OUT" \
-            -O2 -stdlib=libc++
+            -install_name @rpath/libTweak.dylib \
+            Tweak.mm \
+            -o build/device/libTweak.dylib
 
-          echo "Device build output:"
-          file "$OUT" || true
-          ls -l build/device || true
+          echo "✅ Device build complete"
+          file build/device/libTweak.dylib
+          ls -l build/device
 
-      - name: Build simulator slices (x86_64 and arm64)
-        env:
-          LIB_NAME: ${{ env.LIB_NAME }}
+      # ---------------- SIMULATOR BUILD ----------------
+      - name: Build simulator dylib
         run: |
           SIMSDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-          SRC="${LIB_NAME}.mm"
-          OUT_X86="build/simulator/lib${LIB_NAME}-x86_64.dylib"
-          OUT_ARM_SIM="build/simulator/lib${LIB_NAME}-arm64.dylib"
-          OUT_FINAL="build/simulator/lib${LIB_NAME}.dylib"
-
-          echo "Simulator SDK: $SIMSDK"
 
           # x86_64 slice
           xcrun --sdk iphonesimulator clang++ \
@@ -124,13 +64,11 @@ EOF
             -fobjc-arc \
             -framework Foundation \
             -framework UIKit \
-            -install_name @rpath/lib${LIB_NAME}.dylib \
-            "$SRC" \
-            -o "$OUT_X86" \
-            -O2 -stdlib=libc++
+            -install_name @rpath/libTweak.dylib \
+            Tweak.mm \
+            -o build/simulator/libTweak-x86_64.dylib
 
-          # arm64 simulator slice (may fail on older runners; that's okay)
-          set +e
+          # arm64 slice (Apple Silicon simulator)
           xcrun --sdk iphonesimulator clang++ \
             -isysroot "$SIMSDK" \
             -I . \
@@ -139,55 +77,27 @@ EOF
             -fobjc-arc \
             -framework Foundation \
             -framework UIKit \
-            -install_name @rpath/lib${LIB_NAME}.dylib \
-            "$SRC" \
-            -o "$OUT_ARM_SIM" \
-            -O2 -stdlib=libc++
-          set -e
+            -install_name @rpath/libTweak.dylib \
+            Tweak.mm \
+            -o build/simulator/libTweak-arm64.dylib || true
 
-          # Merge produced slices if both exist, else copy the available one
-          SLICES=""
-          [ -f "$OUT_X86" ] && SLICES="$SLICES $OUT_X86"
-          [ -f "$OUT_ARM_SIM" ] && SLICES="$SLICES $OUT_ARM_SIM"
-
-          if [ -n "$SLICES" ]; then
-            if [ $(echo "$SLICES" | wc -w) -gt 1 ]; then
-              lipo -create -output "$OUT_FINAL" $SLICES
-            else
-              cp $SLICES "$OUT_FINAL"
-            fi
-            echo "Simulator build output:"
-            file "$OUT_FINAL" || true
-            ls -l build/simulator || true
+          # merge slices if both exist
+          if [ -f build/simulator/libTweak-arm64.dylib ]; then
+            lipo -create \
+              build/simulator/libTweak-x86_64.dylib \
+              build/simulator/libTweak-arm64.dylib \
+              -output build/simulator/libTweak.dylib
           else
-            echo "No simulator slices were created."
+            cp build/simulator/libTweak-x86_64.dylib build/simulator/libTweak.dylib
           fi
 
-      - name: Optionally codesign device dylib (if secret provided)
-        if: env.CODESIGN_SECRET_NAME != ''
-        env:
-          CODESIGN_SECRET_NAME: ${{ env.CODESIGN_SECRET_NAME }}
-          LIB_NAME: ${{ env.LIB_NAME }}
-        run: |
-          ID="${{ secrets[env.CODESIGN_SECRET_NAME] || '' }}"
-          DEVICE_LIB="build/device/lib${LIB_NAME}.dylib"
-          if [ -z "$ID" ]; then
-            echo "Codesign identity secret not set or empty; skipping codesign."
-            exit 0
-          fi
-          if [ ! -f "$DEVICE_LIB" ]; then
-            echo "No device dylib to codesign; skipping."
-            exit 0
-          fi
-          echo "Codesigning $DEVICE_LIB with identity: $ID"
-          codesign --force --sign "$ID" --timestamp=none "$DEVICE_LIB"
-          codesign -v "$DEVICE_LIB" || true
-          ls -l "$DEVICE_LIB"
+          echo "✅ Simulator build complete"
+          file build/simulator/libTweak.dylib
+          ls -l build/simulator
 
-      - name: Upload artifacts
+      # ---------------- UPLOAD ----------------
+      - name: Upload dylibs
         uses: actions/upload-artifact@v4
         with:
-          name: ios-dylib-artifacts
-          path: |
-            build/device/*.dylib
-            build/simulator/*.dylib
+          name: ios-dylib
+          path: build/**
