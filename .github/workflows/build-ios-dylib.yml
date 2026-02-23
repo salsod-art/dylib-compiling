@@ -1,8 +1,7 @@
-name: Build iOS dylib (single Tweak.mm)
+name: Build iOS dylib
 
 on:
   push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -10,94 +9,41 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Create build folders
-        run: mkdir -p build/device build/simulator
-
-      - name: Verify required files exist
+      - name: Setup MobileSubstrate header
         run: |
-          if [ ! -f "Tweak.mm" ]; then
-            echo "❌ Missing Tweak.mm in repo root"
-            exit 1
-          fi
+          mkdir -p include
+          cat > include/substrate.h << 'EOF'
+          #pragma once
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          void MSHookFunction(void *symbol, void *replace, void **result);
+          void *MSFindSymbol(void *image, const char *name);
+          #ifdef __cplusplus
+          }
+          #endif
+          EOF
 
-          if [ ! -f "substrate.h" ]; then
-            echo "❌ Missing substrate.h in repo root"
-            echo "Create a stub header or add the real one"
-            exit 1
-          fi
-
-      # ---------------- DEVICE BUILD ----------------
-      - name: Build device dylib (iphone arm64)
+      - name: Build dylib
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
 
-          xcrun --sdk iphoneos clang++ \
-            -isysroot "$SDK" \
-            -I . \
+          clang++ Tweak.mm \
+            -dynamiclib \
+            -isysroot $SDK \
             -arch arm64 \
-            -dynamiclib \
-            -fobjc-arc \
-            -framework Foundation \
+            -miphoneos-version-min=13.0 \
             -framework UIKit \
-            -install_name @rpath/libTweak.dylib \
-            Tweak.mm \
-            -o build/device/libTweak.dylib
-
-          echo "✅ Device build complete"
-          file build/device/libTweak.dylib
-          ls -l build/device
-
-      # ---------------- SIMULATOR BUILD ----------------
-      - name: Build simulator dylib
-        run: |
-          SIMSDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-
-          # x86_64 slice
-          xcrun --sdk iphonesimulator clang++ \
-            -isysroot "$SIMSDK" \
-            -I . \
-            -arch x86_64 \
-            -dynamiclib \
-            -fobjc-arc \
             -framework Foundation \
-            -framework UIKit \
-            -install_name @rpath/libTweak.dylib \
-            Tweak.mm \
-            -o build/simulator/libTweak-x86_64.dylib
-
-          # arm64 slice (Apple Silicon simulator)
-          xcrun --sdk iphonesimulator clang++ \
-            -isysroot "$SIMSDK" \
-            -I . \
-            -arch arm64 \
-            -dynamiclib \
+            -framework QuartzCore \
+            -Iinclude \
             -fobjc-arc \
-            -framework Foundation \
-            -framework UIKit \
-            -install_name @rpath/libTweak.dylib \
-            Tweak.mm \
-            -o build/simulator/libTweak-arm64.dylib || true
+            -o EverLight.dylib
 
-          # merge slices if both exist
-          if [ -f build/simulator/libTweak-arm64.dylib ]; then
-            lipo -create \
-              build/simulator/libTweak-x86_64.dylib \
-              build/simulator/libTweak-arm64.dylib \
-              -output build/simulator/libTweak.dylib
-          else
-            cp build/simulator/libTweak-x86_64.dylib build/simulator/libTweak.dylib
-          fi
-
-          echo "✅ Simulator build complete"
-          file build/simulator/libTweak.dylib
-          ls -l build/simulator
-
-      # ---------------- UPLOAD ----------------
-      - name: Upload dylibs
+      - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ios-dylib
-          path: build/**
+          name: EverLight-dylib
+          path: EverLight.dylib
