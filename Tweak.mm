@@ -36,12 +36,6 @@ static void (*SetNormalizedScaleModifier)(void *player, float scale);
 static void (*SetMass)(void *obj, float mass);
 static bool (*get_IsMine)(void *player);
 
-// Vector3 structure
-struct Vector3 {
-    float x, y, z;
-    Vector3(float _x=0, float _y=0, float _z=0) : x(_x), y(_y), z(_z) {}
-};
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIX — Block-based UIGestureRecognizer support
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1502,5 +1496,6 @@ static void ELInit(void) {
         ELInject();
     });
 }
+
 
 
