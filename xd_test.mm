@@ -11,10 +11,11 @@
 #import <objc/runtime.h>
 #import <substrate.h>
 #import <dlfcn.h>
+#import <AudioToolbox/AudioToolbox.h>
 #include <mach-o/dyld.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
-#include <AudioToolbox/AudioToolbox.h>
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Vector3 structure
@@ -29,44 +30,44 @@ struct Vector3 {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // IL2CPP function pointers
-static __int64 (*il2cpp_domain_get)(void);
-static __int64 (*il2cpp_domain_get_assemblies)(__int64, __int64 *);
-static __int64 (*il2cpp_assembly_get_image)(__int64);
-static const char *(*il2cpp_image_get_name)(__int64);
-static __int64 (*il2cpp_class_from_name)(__int64, const char *, const char *);
-static __int64 (*il2cpp_class_get_method_from_name)(__int64, const char *, int);
-static __int64 (*il2cpp_class_get_field_from_name)(__int64, const char *);
-static void    (*il2cpp_field_get_value)(__int64, __int64, void *);
-static void    (*il2cpp_field_set_value)(__int64, __int64, void *);
-static __int64 (*il2cpp_runtime_invoke)(__int64, __int64, void **, __int64 *);
-static __int64 (*il2cpp_resolve_icall)(const char *);
-static __int64 (*il2cpp_class_get_type)(__int64);
-static __int64 (*il2cpp_type_get_object)(__int64);
+static int64_t (*il2cpp_domain_get)(void);
+static int64_t (*il2cpp_domain_get_assemblies)(int64_t, size_t *);
+static int64_t (*il2cpp_assembly_get_image)(int64_t);
+static const char *(*il2cpp_image_get_name)(int64_t);
+static int64_t (*il2cpp_class_from_name)(int64_t, const char *, const char *);
+static int64_t (*il2cpp_class_get_method_from_name)(int64_t, const char *, int);
+static int64_t (*il2cpp_class_get_field_from_name)(int64_t, const char *);
+static void    (*il2cpp_field_get_value)(int64_t, int64_t, void *);
+static void    (*il2cpp_field_set_value)(int64_t, int64_t, void *);
+static int64_t (*il2cpp_runtime_invoke)(int64_t, int64_t, void **, int64_t *);
+static int64_t (*il2cpp_resolve_icall)(const char *);
+static int64_t (*il2cpp_class_get_type)(int64_t);
+static int64_t (*il2cpp_type_get_object)(int64_t);
 static void   *il2cpp_string_new;
 
 // Game state
 static BOOL    gIsInitialized           = NO;
-static __int64 gGameImage               = 0;
-static __int64 gUnityImage              = 0;
-static __int64 gNetPlayerClass          = 0;
-static __int64 gPrefabGeneratorClass    = 0;
-static __int64 gGameObjectClass         = 0;
-static __int64 gTransformClass          = 0;
-static __int64 gObjectClass             = 0;
-static __int64 gGameManagerClass        = 0;
-static __int64 gItemSellingMachineClass = 0;
+static int64_t gGameImage               = 0;
+static int64_t gUnityImage              = 0;
+static int64_t gNetPlayerClass          = 0;
+static int64_t gPrefabGeneratorClass    = 0;
+static int64_t gGameObjectClass         = 0;
+static int64_t gTransformClass          = 0;
+static int64_t gObjectClass             = 0;
+static int64_t gGameManagerClass        = 0;
+static int64_t gItemSellingMachineClass = 0;
 
 // Method handles
-static __int64 gGetLocalPlayerMethod            = 0;
-static __int64 gGiveSelfMoneyMethod             = 0;
-static __int64 gSpawnItemMethod                 = 0;
-static __int64 gFindObjectOfTypeMethod          = 0;
-static __int64 gRpcAddPlayerMoneyToAllMethod    = 0;
-static __int64 gGameManagerAddPlayerMoneyMethod = 0;
-static __int64 gTransformGetPositionInjected    = 0;
+static int64_t gGetLocalPlayerMethod            = 0;
+static int64_t gGiveSelfMoneyMethod             = 0;
+static int64_t gSpawnItemMethod                 = 0;
+static int64_t gFindObjectOfTypeMethod          = 0;
+static int64_t gRpcAddPlayerMoneyToAllMethod    = 0;
+static int64_t gGameManagerAddPlayerMoneyMethod = 0;
+static int64_t gTransformGetPositionInjected    = 0;
 
 // Spawn settings
-static __int64   gSpawnQuantity          = 1;
+static int64_t   gSpawnQuantity          = 1;
 static float     gCustomSpawnX           = 0;
 static float     gCustomSpawnY           = 1.0f;
 static float     gCustomSpawnZ           = 0;
@@ -76,15 +77,15 @@ static BOOL      gUseCustomLocation      = NO;
 // IL2CPP Initialization (from old.txt: initializeIL2CPP + initializeGameClasses)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-static __int64 XDGetImage(const char *name) {
+static int64_t XDGetImage(const char *name) {
     if (!gIsInitialized) return 0;
-    __int64 domain = il2cpp_domain_get();
+    int64_t domain = il2cpp_domain_get();
     if (!domain) return 0;
-    __int64 count = 0;
-    __int64 assemblies = il2cpp_domain_get_assemblies(domain, (unsigned long long *)&count);
-    for (__int64 i = 0; i < count; i++) {
-        __int64 asm_ = *((__int64 *)assemblies + i);
-        __int64 img  = il2cpp_assembly_get_image(asm_);
+    size_t count = 0;
+    int64_t assemblies = il2cpp_domain_get_assemblies(domain, &count);
+    for (size_t i = 0; i < count; i++) {
+        int64_t asm_ = *((int64_t *)assemblies + i);
+        int64_t img  = il2cpp_assembly_get_image(asm_);
         const char *imgName = il2cpp_image_get_name(img);
         if (imgName && strcmp(imgName, name) == 0) return img;
     }
@@ -106,19 +107,19 @@ static BOOL XDInitializeIL2CPP(void) {
     if (!handle) handle = dlopen(NULL, RTLD_NOW);
     if (!handle) return NO;
 
-    il2cpp_domain_get              = (__int64 (*)(void))dlsym(handle, "il2cpp_domain_get");
-    il2cpp_domain_get_assemblies   = (__int64 (*)(__int64, __int64 *))dlsym(handle, "il2cpp_domain_get_assemblies");
-    il2cpp_assembly_get_image      = (__int64 (*)(__int64))dlsym(handle, "il2cpp_assembly_get_image");
-    il2cpp_image_get_name          = (const char *(*)(__int64))dlsym(handle, "il2cpp_image_get_name");
-    il2cpp_class_from_name         = (__int64 (*)(__int64, const char *, const char *))dlsym(handle, "il2cpp_class_from_name");
-    il2cpp_class_get_method_from_name = (__int64 (*)(__int64, const char *, int))dlsym(handle, "il2cpp_class_get_method_from_name");
-    il2cpp_class_get_field_from_name  = (__int64 (*)(__int64, const char *))dlsym(handle, "il2cpp_class_get_field_from_name");
-    il2cpp_field_get_value         = (void (*)(__int64, __int64, void *))dlsym(handle, "il2cpp_field_get_value");
-    il2cpp_field_set_value         = (void (*)(__int64, __int64, void *))dlsym(handle, "il2cpp_field_set_value");
-    il2cpp_runtime_invoke          = (__int64 (*)(__int64, __int64, void **, __int64 *))dlsym(handle, "il2cpp_runtime_invoke");
-    il2cpp_resolve_icall           = (__int64 (*)(const char *))dlsym(handle, "il2cpp_resolve_icall");
-    il2cpp_class_get_type          = (__int64 (*)(__int64))dlsym(handle, "il2cpp_class_get_type");
-    il2cpp_type_get_object         = (__int64 (*)(__int64))dlsym(handle, "il2cpp_type_get_object");
+    il2cpp_domain_get              = (int64_t (*)(void))dlsym(handle, "il2cpp_domain_get");
+    il2cpp_domain_get_assemblies   = (int64_t (*)(int64_t, size_t *))dlsym(handle, "il2cpp_domain_get_assemblies");
+    il2cpp_assembly_get_image      = (int64_t (*)(int64_t))dlsym(handle, "il2cpp_assembly_get_image");
+    il2cpp_image_get_name          = (const char *(*)(int64_t))dlsym(handle, "il2cpp_image_get_name");
+    il2cpp_class_from_name         = (int64_t (*)(int64_t, const char *, const char *))dlsym(handle, "il2cpp_class_from_name");
+    il2cpp_class_get_method_from_name = (int64_t (*)(int64_t, const char *, int))dlsym(handle, "il2cpp_class_get_method_from_name");
+    il2cpp_class_get_field_from_name  = (int64_t (*)(int64_t, const char *))dlsym(handle, "il2cpp_class_get_field_from_name");
+    il2cpp_field_get_value         = (void (*)(int64_t, int64_t, void *))dlsym(handle, "il2cpp_field_get_value");
+    il2cpp_field_set_value         = (void (*)(int64_t, int64_t, void *))dlsym(handle, "il2cpp_field_set_value");
+    il2cpp_runtime_invoke          = (int64_t (*)(int64_t, int64_t, void **, int64_t *))dlsym(handle, "il2cpp_runtime_invoke");
+    il2cpp_resolve_icall           = (int64_t (*)(const char *))dlsym(handle, "il2cpp_resolve_icall");
+    il2cpp_class_get_type          = (int64_t (*)(int64_t))dlsym(handle, "il2cpp_class_get_type");
+    il2cpp_type_get_object         = (int64_t (*)(int64_t))dlsym(handle, "il2cpp_type_get_object");
     il2cpp_string_new              = dlsym(handle, "il2cpp_string_new");
 
     if (il2cpp_domain_get && il2cpp_class_from_name &&
@@ -167,19 +168,19 @@ static BOOL XDInitializeGameClasses(void) {
 // Core Game Functions (from old.txt)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-static __int64 XDGetLocalPlayer(void) {
+static int64_t XDGetLocalPlayer(void) {
     if (!gGetLocalPlayerMethod && gNetPlayerClass)
         gGetLocalPlayerMethod = il2cpp_class_get_method_from_name(gNetPlayerClass, "get_localPlayer", 0);
     if (!gGetLocalPlayerMethod) return 0;
-    __int64 exc = 0;
-    __int64 player = il2cpp_runtime_invoke(gGetLocalPlayerMethod, 0, NULL, &exc);
+    int64_t exc = 0;
+    int64_t player = il2cpp_runtime_invoke(gGetLocalPlayerMethod, 0, NULL, &exc);
     if (exc) { NSLog(@"[EverLight] Exception getting local player: %lld", exc); return 0; }
     return player;
 }
 
 static float XDGetPlayerX(void) {
     // Returns player X position via Transform; simplified fallback
-    __int64 player = XDGetLocalPlayer();
+    int64_t player = XDGetLocalPlayer();
     if (!player) return 0.0f;
     // Try to read transform position via field or injected method
     // For now return a safe spawn offset above ground
@@ -207,9 +208,9 @@ static void XDSpawnItem(NSString *itemID, int quantity) {
     }
 
     // Create IL2CPP string from ObjC string
-    typedef __int64 (*StringNewFn)(const char *);
+    typedef int64_t (*StringNewFn)(const char *);
     StringNewFn stringNew = (StringNewFn)il2cpp_string_new;
-    __int64 il2cppStr = stringNew([itemID UTF8String]);
+    int64_t il2cppStr = stringNew([itemID UTF8String]);
 
     float spawnX, spawnY, spawnZ;
     XDGetSpawnPosition(&spawnX, &spawnY, &spawnZ);
@@ -230,7 +231,7 @@ static void XDSpawnItem(NSString *itemID, int quantity) {
         args[2] = quat;
         args[3] = &scale;
 
-        __int64 exc = 0;
+        int64_t exc = 0;
         il2cpp_runtime_invoke(gSpawnItemMethod, 0, args, &exc);
         if (exc) {
             NSLog(@"[EverLight] SpawnItem exception at i=%d: %lld", i, exc);
@@ -249,12 +250,12 @@ static void XDGiveSelfMoney(unsigned int amount) {
         NSLog(@"[EverLight] giveSelfMoney: AddPlayerMoney method not found");
         return;
     }
-    __int64 player = XDGetLocalPlayer();
+    int64_t player = XDGetLocalPlayer();
     if (!player) { NSLog(@"[EverLight] Could not get local player"); return; }
 
     unsigned int val = amount;
     void *args[1]; args[0] = &val;
-    __int64 exc = 0;
+    int64_t exc = 0;
     il2cpp_runtime_invoke(gGiveSelfMoneyMethod, player, args, &exc);
     if (exc) NSLog(@"[EverLight] Exception giving money: %lld", exc);
     else NSLog(@"[EverLight] Gave %u money to local player", amount);
@@ -263,11 +264,11 @@ static void XDGiveSelfMoney(unsigned int amount) {
 // Give money to all players (from old.txt giveAllPlayersMoney)
 static void XDGiveAllPlayersMoney(int amount) {
     if (gRpcAddPlayerMoneyToAllMethod && gFindObjectOfTypeMethod && il2cpp_class_get_type && il2cpp_type_get_object) {
-        __int64 type   = il2cpp_class_get_type(gItemSellingMachineClass);
-        __int64 object = il2cpp_type_get_object(type);
-        __int64 exc    = 0;
+        int64_t type   = il2cpp_class_get_type(gItemSellingMachineClass);
+        int64_t object = il2cpp_type_get_object(type);
+        int64_t exc    = 0;
         void *findArgs[1]; findArgs[0] = (void *)&object;
-        __int64 controller = il2cpp_runtime_invoke(gFindObjectOfTypeMethod, 0, findArgs, &exc);
+        int64_t controller = il2cpp_runtime_invoke(gFindObjectOfTypeMethod, 0, findArgs, &exc);
         if (controller && !exc) {
             int val = amount;
             void *rpcArgs[1]; rpcArgs[0] = &val;
@@ -284,7 +285,7 @@ static void XDGiveAllPlayersMoney(int amount) {
     if (gGameManagerAddPlayerMoneyMethod) {
         int val = amount;
         void *args[1]; args[0] = &val;
-        __int64 exc = 0;
+        int64_t exc = 0;
         il2cpp_runtime_invoke(gGameManagerAddPlayerMoneyMethod, 0, args, &exc);
         if (!exc) { NSLog(@"[EverLight] GameManager.AddPlayerMoney success"); return; }
     }
@@ -294,9 +295,9 @@ static void XDGiveAllPlayersMoney(int amount) {
 
 // Infinite ammo (from old.txt giveInfAmmo)
 static void XDGiveInfiniteAmmo(void) {
-    __int64 player = XDGetLocalPlayer();
+    int64_t player = XDGetLocalPlayer();
     if (!player || !gNetPlayerClass) return;
-    __int64 field = il2cpp_class_get_field_from_name(gNetPlayerClass, "ammo");
+    int64_t field = il2cpp_class_get_field_from_name(gNetPlayerClass, "ammo");
     if (!field) field = il2cpp_class_get_field_from_name(gNetPlayerClass, "currentAmmo");
     if (field) {
         int val = 9999;
@@ -307,9 +308,9 @@ static void XDGiveInfiniteAmmo(void) {
 
 // Remove shop cooldown (from old.txt removeShopCooldown)
 static BOOL XDRemoveShopCooldown(void) {
-    __int64 player = XDGetLocalPlayer();
+    int64_t player = XDGetLocalPlayer();
     if (!player || !gNetPlayerClass) return NO;
-    __int64 field = il2cpp_class_get_field_from_name(gNetPlayerClass, "shopCooldown");
+    int64_t field = il2cpp_class_get_field_from_name(gNetPlayerClass, "shopCooldown");
     if (!field) field = il2cpp_class_get_field_from_name(gNetPlayerClass, "lastBuyTime");
     if (!field) field = il2cpp_class_get_field_from_name(gNetPlayerClass, "buyTimer");
     if (field) {
