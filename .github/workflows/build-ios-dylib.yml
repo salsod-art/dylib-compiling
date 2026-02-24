@@ -30,7 +30,7 @@ jobs:
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
 
-          clang++ Tweak.mm \
+          clang++ xd_test.mm \
             -dynamiclib \
             -isysroot $SDK \
             -arch arm64 \
