@@ -11,11 +11,21 @@
 #import <objc/runtime.h>
 #import <substrate.h>
 #import <dlfcn.h>
-#import <AudioToolbox/AudioToolbox.h>
 #include <mach-o/dyld.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+
+// AudioServicesPlaySystemSound loaded at runtime to avoid framework linker dep
+static void ELPlaySound(uint32_t soundID) {
+    static void (*_play)(uint32_t) = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void *h = dlopen("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox", RTLD_LAZY);
+        if (h) _play = (void (*)(uint32_t))dlsym(h, "AudioServicesPlaySystemSound");
+    });
+    if (_play) _play(soundID);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Vector3 structure
@@ -361,6 +371,8 @@ static NSMutableArray *_ELGestureTargets;
 // Safe key window helper (iOS 13+)
 // ═══════════════════════════════════════════════════════════════════════════════
 static UIWindow *ELKeyWindow(void) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     if (@available(iOS 13.0, *)) {
         for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
             if (scene.activationState == UISceneActivationStateForegroundActive &&
@@ -373,6 +385,7 @@ static UIWindow *ELKeyWindow(void) {
         }
     }
     return [UIApplication sharedApplication].keyWindow;
+#pragma clang diagnostic pop
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1182,7 +1195,7 @@ static void ELToast(NSString *msg, BOOL success) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         XDGiveSelfMoney(9999999);
         ELToast(@"💰 $9,999,999 added to self!", YES);
-        AudioServicesPlaySystemSound(0x5EF);
+        ELPlaySound(0x5EF);
     });
 }
 
@@ -1190,7 +1203,7 @@ static void ELToast(NSString *msg, BOOL success) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         XDGiveAllPlayersMoney(9999999);
         ELToast(@"💸 $9,999,999 sent to ALL players!", YES);
-        AudioServicesPlaySystemSound(0x5EF);
+        ELPlaySound(0x5EF);
     });
 }
 
@@ -1198,7 +1211,7 @@ static void ELToast(NSString *msg, BOOL success) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         XDGiveInfiniteAmmo();
         ELToast(@"♾️ Infinite ammo activated!", YES);
-        AudioServicesPlaySystemSound(0x5EF);
+        ELPlaySound(0x5EF);
     });
 }
 
@@ -1206,7 +1219,7 @@ static void ELToast(NSString *msg, BOOL success) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         BOOL ok = XDRemoveShopCooldown();
         ELToast(ok ? @"🛒 Shop cooldown removed!" : @"✕ Could not find cooldown field", ok);
-        if (ok) AudioServicesPlaySystemSound(0x5EF);
+        if (ok) ELPlaySound(0x5EF);
     });
 }
 
@@ -1324,7 +1337,7 @@ static void ELToast(NSString *msg, BOOL success) {
         }
         XDSpawnItem(item, (int)qty);
         ELToast([NSString stringWithFormat:@"✦ Spawned %@ x%ld", item, (long)qty], YES);
-        AudioServicesPlaySystemSound(0x5EF);
+        ELPlaySound(0x5EF);
     });
 }
 
