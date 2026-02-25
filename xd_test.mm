@@ -91,21 +91,21 @@ static BOOL initializeIL2CPP(void) {
     if (!il2cppHandle) il2cppHandle = dlopen(NULL, RTLD_NOW);
     if (!il2cppHandle) return NO;
 
-    /* cast dlsym results to the correct function-pointer type using typeof to avoid warnings */
-    il2cpp_domain_get = (typeof(il2cpp_domain_get))dlsym(il2cppHandle, "il2cpp_domain_get");
-    il2cpp_domain_get_assemblies = (typeof(il2cpp_domain_get_assemblies))dlsym(il2cppHandle, "il2cpp_domain_get_assemblies");
-    il2cpp_assembly_get_image = (typeof(il2cpp_assembly_get_image))dlsym(il2cppHandle, "il2cpp_assembly_get_image");
-    il2cpp_image_get_name = (typeof(il2cpp_image_get_name))dlsym(il2cppHandle, "il2cpp_image_get_name");
-    il2cpp_class_from_name = (typeof(il2cpp_class_from_name))dlsym(il2cppHandle, "il2cpp_class_from_name");
-    il2cpp_class_get_method_from_name = (typeof(il2cpp_class_get_method_from_name))dlsym(il2cppHandle, "il2cpp_class_get_method_from_name");
-    il2cpp_string_new = (typeof(il2cpp_string_new))dlsym(il2cppHandle, "il2cpp_string_new");
-    il2cpp_runtime_invoke = (typeof(il2cpp_runtime_invoke))dlsym(il2cppHandle, "il2cpp_runtime_invoke");
-    il2cpp_resolve_icall = (typeof(il2cpp_resolve_icall))dlsym(il2cppHandle, "il2cpp_resolve_icall");
-    il2cpp_class_get_field_from_name = (typeof(il2cpp_class_get_field_from_name))dlsym(il2cppHandle, "il2cpp_class_get_field_from_name");
-    il2cpp_field_get_value = (typeof(il2cpp_field_get_value))dlsym(il2cppHandle, "il2cpp_field_get_value");
-    il2cpp_field_set_value = (typeof(il2cpp_field_set_value))dlsym(il2cppHandle, "il2cpp_field_set_value");
-    il2cpp_class_get_type = (typeof(il2cpp_class_get_type))dlsym(il2cppHandle, "il2cpp_class_get_type");
-    il2cpp_type_get_object = (typeof(il2cpp_type_get_object))dlsym(il2cppHandle, "il2cpp_type_get_object");
+    /* explicit function-pointer casts for dlsym results */
+    il2cpp_domain_get = (void *(*)(void))dlsym(il2cppHandle, "il2cpp_domain_get");
+    il2cpp_domain_get_assemblies = (void **(*)(void *, size_t *))dlsym(il2cppHandle, "il2cpp_domain_get_assemblies");
+    il2cpp_assembly_get_image = (void *(*)(void *))dlsym(il2cppHandle, "il2cpp_assembly_get_image");
+    il2cpp_image_get_name = (const char *(*)(void *))dlsym(il2cppHandle, "il2cpp_image_get_name");
+    il2cpp_class_from_name = (void *(*)(void *, const char *, const char *))dlsym(il2cppHandle, "il2cpp_class_from_name");
+    il2cpp_class_get_method_from_name = (void *(*)(void *, const char *, int))dlsym(il2cppHandle, "il2cpp_class_get_method_from_name");
+    il2cpp_string_new = (void *(*)(const char *))dlsym(il2cppHandle, "il2cpp_string_new");
+    il2cpp_runtime_invoke = (void *(*)(void *, void *, void **, void **))dlsym(il2cppHandle, "il2cpp_runtime_invoke");
+    il2cpp_resolve_icall = (void *(*)(const char *))dlsym(il2cppHandle, "il2cpp_resolve_icall");
+    il2cpp_class_get_field_from_name = (void *(*)(void *, const char *))dlsym(il2cppHandle, "il2cpp_class_get_field_from_name");
+    il2cpp_field_get_value = (void (*)(void *, void *, void *))dlsym(il2cppHandle, "il2cpp_field_get_value");
+    il2cpp_field_set_value = (void (*)(void *, void *, void *))dlsym(il2cppHandle, "il2cpp_field_set_value");
+    il2cpp_class_get_type = (void *(*)(void *))dlsym(il2cppHandle, "il2cpp_class_get_type");
+    il2cpp_type_get_object = (void *(*)(void *))dlsym(il2cppHandle, "il2cpp_type_get_object");
 
     if (il2cpp_domain_get && il2cpp_class_from_name && il2cpp_class_get_method_from_name && il2cpp_class_get_type && il2cpp_type_get_object) {
         Transform_get_position_Injected = il2cpp_resolve_icall("UnityEngine.Transform::get_position_Injected");
