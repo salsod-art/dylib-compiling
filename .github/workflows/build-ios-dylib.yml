@@ -30,7 +30,6 @@ jobs:
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
 
-          # compile the Objective-C++ file (xd_test.mm)
           clang++ -x objective-c++ xd_test.mm \
             -dynamiclib \
             -isysroot "$SDK" \
@@ -46,8 +45,11 @@ jobs:
             -std=c++17 \
             -o EverLight.dylib
 
-      - name: Upload dylib
-        uses: actions/upload-artifact@v4
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: EverLight-dylib
-          path: EverLight.dylib
+          tag_name: auto-build-${{ github.run_number }}
+          name: Auto Build ${{ github.run_number }}
+          files: EverLight.dylib
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
