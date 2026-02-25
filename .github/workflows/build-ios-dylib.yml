@@ -30,7 +30,7 @@ jobs:
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
 
-          # compile the Objective-C++ file (changed to .mm)
+          # compile the Objective-C++ file (xd_test.mm)
           clang++ -x objective-c++ xd_test.mm \
             -dynamiclib \
             -isysroot "$SDK" \
@@ -40,6 +40,7 @@ jobs:
             -framework Foundation \
             -framework QuartzCore \
             -framework CoreGraphics \
+            -framework AudioToolbox \
             -Iinclude \
             -fobjc-arc \
             -std=c++17 \
