@@ -30,9 +30,10 @@ jobs:
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
 
-          clang++ -x objective-c++ xd_test.xm \
+          # compile the Objective-C++ file (changed to .mm)
+          clang++ -x objective-c++ xd_test.mm \
             -dynamiclib \
-            -isysroot $SDK \
+            -isysroot "$SDK" \
             -arch arm64 \
             -miphoneos-version-min=13.0 \
             -framework UIKit \
